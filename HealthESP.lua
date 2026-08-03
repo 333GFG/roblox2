@@ -1,18 +1,15 @@
 -- ============================================
---  HealthESP Module by nitarte
+--  HealthESP Module by nitarte (исправленный)
 --  Вертикальная полоска здоровья справа от игрока
---  Цвета: низкий → высокий (градиент)
 -- ============================================
 
 local HealthESP = {
     Enabled = false,
-    ColorLow = Color3.fromRGB(255, 50, 50),   -- красный (низкое HP)
-    ColorHigh = Color3.fromRGB(50, 255, 50),  -- зелёный (высокое HP)
+    ColorLow = Color3.fromRGB(255, 50, 50),
+    ColorHigh = Color3.fromRGB(50, 255, 50),
     Width = 6,
-    Height = 50,
-    OffsetX = 10,    -- отступ от бокса/игрока вправо
-    OffsetY = 0,     -- вертикальное смещение
-    Position = "Right", -- "Right" или "Left"
+    OffsetX = 10,
+    Position = "Right",
     
     _players = {},
     _connection = nil,
@@ -31,8 +28,21 @@ local canDrawSquare = pcall(function()
     s:Remove()
 end)
 
+-- Если Square не поддерживается, возвращаем заглушку
+if not canDrawSquare then
+    return {
+        Enabled = false,
+        Toggle = function() end,
+        SetColors = function() end,
+        SetWidth = function() end,
+        SetOffset = function() end,
+        SetPosition = function() end,
+        Unload = function() end,
+    }
+end
+
 -- ============================================
---  ПОЛУЧИТЬ НИЖНЮЮ ТОЧКУ (ноги) – для определения высоты игрока
+--  ПОЛУЧИТЬ НИЖНЮЮ ТОЧКУ (ноги)
 -- ============================================
 local function GetBottomPart(character)
     if not character then return nil end
@@ -54,11 +64,9 @@ local function GetBottomPart(character)
 end
 
 -- ============================================
---  СОЗДАНИЕ ОБЪЕКТОВ ДЛЯ ОДНОГО ИГРОКА
+--  СОЗДАНИЕ ОБЪЕКТОВ
 -- ============================================
 function HealthESP:_createPlayerObjects(player)
-    if not canDrawSquare then return nil end
-    
     local objects = {
         player = player,
         background = nil,
@@ -68,7 +76,7 @@ function HealthESP:_createPlayerObjects(player)
     
     local bg = Drawing.new("Square")
     bg.Visible = false
-    bg.Color = Color3.fromRGB(30, 30, 30)  -- тёмный фон
+    bg.Color = Color3.fromRGB(30, 30, 30)
     bg.Thickness = 0
     bg.Filled = true
     bg.Transparency = 0.5
@@ -87,7 +95,7 @@ function HealthESP:_createPlayerObjects(player)
 end
 
 -- ============================================
---  УДАЛЕНИЕ ОБЪЕКТОВ
+--  УДАЛЕНИЕ
 -- ============================================
 function HealthESP:_removePlayer(player)
     local objs = self._players[player]
@@ -114,7 +122,7 @@ function HealthESP:_clearAll()
 end
 
 -- ============================================
---  ОБНОВЛЕНИЕ ПОЛОСКИ ЗДОРОВЬЯ
+--  ОБНОВЛЕНИЕ ПОЛОСКИ
 -- ============================================
 function HealthESP:_updatePlayer(objs)
     local player = objs.player
@@ -150,7 +158,6 @@ function HealthESP:_updatePlayer(objs)
     local maxHealth = humanoid.MaxHealth
     local healthPercent = math.clamp(health / maxHealth, 0, 1)
     
-    -- Проецируем голову и ноги для определения позиции и высоты
     local headScreen, headOn = Camera:WorldToViewportPoint(head.Position)
     local bottomScreen, bottomOn = Camera:WorldToViewportPoint(bottomPos)
     
@@ -163,49 +170,42 @@ function HealthESP:_updatePlayer(objs)
         return
     end
     
-    -- Вычисляем размеры полоски: высота = расстояние от головы до ног + небольшой запас
     local height = math.abs(bottomScreen.Y - headScreen.Y)
     if height < 1 then height = 1
-    local barHeight = height + 10  -- немного больше, чем персонаж
+    local barHeight = height + 10
     local barWidth = self.Width
     
-    -- Центр по X – справа или слева от игрока
     local centerX = (headScreen.X + bottomScreen.X) / 2
-    local topY = headScreen.Y - 5   -- чуть выше головы
-    local bottomY = bottomScreen.Y + 5  -- чуть ниже ног
+    local topY = headScreen.Y - 5
+    local bottomY = bottomScreen.Y + 5
     
-    -- Позиция полоски по X
     local barX
     if self.Position == "Left" then
         barX = centerX - barWidth - self.OffsetX
-    else -- Right
+    else
         barX = centerX + self.OffsetX
     end
     
-    -- Позиция фона (вся полоска)
     objs.background.Position = Vector2.new(barX, topY)
     objs.background.Size = Vector2.new(barWidth, barHeight)
     objs.background.Visible = true
     objs.background.Color = Color3.fromRGB(30, 30, 30)
     
-    -- Заполнение (здоровье) – снизу вверх
     local fillHeight = barHeight * healthPercent
-    local fillY = topY + (barHeight - fillHeight)  -- снизу вверх
-    
-    -- Вычисляем цвет на основе healthPercent (градиент между ColorLow и ColorHigh)
+    local fillY = topY + (barHeight - fillHeight)
     local color = self.ColorLow:Lerp(self.ColorHigh, healthPercent)
     
     objs.fill.Position = Vector2.new(barX, fillY)
     objs.fill.Size = Vector2.new(barWidth, fillHeight)
     objs.fill.Visible = true
     objs.fill.Color = color
-    objs.fill.Transparency = 0.8  -- можно сделать настраиваемым
+    objs.fill.Transparency = 0.8
     
     objs.visible = true
 end
 
 -- ============================================
---  ГЛАВНЫЙ ЦИКЛ (обновление раз в 2 кадра)
+--  ГЛАВНЫЙ ЦИКЛ
 -- ============================================
 function HealthESP:_startLoop()
     if self._connection then return end
@@ -213,17 +213,14 @@ function HealthESP:_startLoop()
         if not self.Enabled then return end
         
         self._frameCounter = self._frameCounter + 1
-        -- Обновляем только каждый 2-й кадр для экономии
         if self._frameCounter % 2 ~= 0 then return end
         
-        -- Добавляем новых игроков
         for _, player in pairs(Players:GetPlayers()) do
             if player ~= LocalPlayer and not self._players[player] then
                 self:_createPlayerObjects(player)
             end
         end
         
-        -- Обновляем все полоски
         for _, objs in pairs(self._players) do
             self:_updatePlayer(objs)
         end
@@ -250,20 +247,14 @@ end
 function HealthESP:SetColors(lowColor, highColor)
     self.ColorLow = lowColor or self.ColorLow
     self.ColorHigh = highColor or self.ColorHigh
-    -- Цвета обновятся при следующем обновлении
 end
 
 function HealthESP:SetWidth(width)
     self.Width = math.max(width, 2)
 end
 
-function HealthESP:SetHeight(height)
-    self.Height = math.max(height, 10)
-end
-
 function HealthESP:SetOffset(offsetX, offsetY)
     self.OffsetX = offsetX or self.OffsetX
-    self.OffsetY = offsetY or self.OffsetY
 end
 
 function HealthESP:SetPosition(pos)
@@ -277,7 +268,6 @@ function HealthESP:Unload()
     self.Enabled = false
 end
 
--- Авто-удаление при выходе игрока
 Players.PlayerRemoving:Connect(function(player)
     if HealthESP._players[player] then
         HealthESP:_removePlayer(player)
