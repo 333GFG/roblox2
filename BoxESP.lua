@@ -1,7 +1,6 @@
 -- ============================================
---  BoxESP Module by nitarte (v5.2 — исправление зависаний)
---  Обновляется каждый кадр через RenderStepped
---  Полная перезагрузка бокса при смене персонажа
+--  BoxESP Module by nitarte (v5.0 — оптимизированный)
+--  2D Box ESP с кэшированием и настройкой цвета
 -- ============================================
 
 local BoxESP = {
@@ -11,7 +10,7 @@ local BoxESP = {
     Transparency = 1,
     TeamCheck = false,
     MaxDistance = 2000,
-    UseOutline = true,
+    UseOutline = true,   -- можно отключить для FPS
     
     _players = {},
     _connection = nil,
@@ -24,11 +23,9 @@ local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 
 -- ============================================
---  ПОЛУЧИТЬ НИЖНЮЮ ТОЧКУ (ноги) — кэшируем части
+--  ПОЛУЧИТЬ НИЖНЮЮ ТОЧКУ (ноги)
 -- ============================================
 local function GetBottomPart(character)
-    if not character then return nil end
-    -- Ищем ноги
     local leftFoot = character:FindFirstChild("LeftFoot")
     local rightFoot = character:FindFirstChild("RightFoot")
     if leftFoot and rightFoot then
@@ -39,23 +36,24 @@ local function GetBottomPart(character)
     if leftLeg and rightLeg then
         return (leftLeg.Position + rightLeg.Position) / 2
     end
-    -- R6 или другие
     local hrp = character:FindFirstChild("HumanoidRootPart")
     if hrp then
         return hrp.Position - Vector3.new(0, 2.5, 0)
     end
-    -- Fallback: просто корень
     return nil
 end
 
 -- ============================================
---  СОЗДАНИЕ ЛИНИЙ
+--  СОЗДАНИЕ ЛИНИЙ (только нужное количество)
 -- ============================================
 function BoxESP:_createBox(player)
     local box = {
         player = player,
         lines = {},
-        character = nil,   -- запоминаем персонажа для проверки
+        lastTopLeft = nil,
+        lastTopRight = nil,
+        lastBottomLeft = nil,
+        lastBottomRight = nil,
         visible = false
     }
     
@@ -98,7 +96,7 @@ function BoxESP:_clearAll()
 end
 
 -- ============================================
---  ОБНОВЛЕНИЕ БОКСА (синхронизировано с рендером)
+--  ОБНОВЛЕНИЕ БОКСА (с кэшированием)
 -- ============================================
 function BoxESP:_updateBox(box)
     if not box.player or not box.player.Parent then
@@ -107,24 +105,6 @@ function BoxESP:_updateBox(box)
     end
     
     local character = box.player.Character
-    -- Если персонаж изменился (перерождение) – пересоздаём бокс
-    if box.character ~= character then
-        -- Удаляем старые линии и создаём новые
-        for _, line in pairs(box.lines) do
-            line:Remove()
-        end
-        local count = self.UseOutline and 8 or 4
-        box.lines = {}
-        for i = 1, count do
-            local line = Drawing.new("Line")
-            line.Visible = false
-            line.Transparency = self.Transparency
-            table.insert(box.lines, line)
-        end
-        box.character = character
-        box.visible = false
-    end
-    
     if not character then
         if box.visible then
             for _, line in pairs(box.lines) do line.Visible = false end
@@ -173,13 +153,13 @@ function BoxESP:_updateBox(box)
         return
     end
     
-    -- Расчёт углов (каждый кадр)
+    -- Рассчёт углов
     local height = math.abs(bottomScreen.Y - headScreen.Y)
-    if height < 1 then height = 1 end
     local width = height * 0.7
     local centerX = (headScreen.X + bottomScreen.X) / 2
     local topY = headScreen.Y - height * 0.08
     local bottomY = bottomScreen.Y + height * 0.05
+    
     height = bottomY - topY
     width = height * 0.6
     
@@ -188,22 +168,37 @@ function BoxESP:_updateBox(box)
     local bottomLeft = Vector2.new(centerX - width/2, bottomY)
     local bottomRight = Vector2.new(centerX + width/2, bottomY)
     
+    -- Проверка изменений
+    if box.lastTopLeft == topLeft and box.lastTopRight == topRight and
+       box.lastBottomLeft == bottomLeft and box.lastBottomRight == bottomRight then
+        -- Координаты не изменились, но если линии были скрыты – показываем
+        if not box.visible then
+            for _, line in pairs(box.lines) do line.Visible = true end
+            box.visible = true
+        end
+        return
+    end
+    
+    -- Обновляем линии
     local lines = box.lines
     local color = self.Color
     local thickness = self.Thickness
     local outlineThickness = thickness + 2
     
     if self.UseOutline then
+        -- Outline (линии 1-4)
         lines[1].From = topLeft;      lines[1].To = topRight;       lines[1].Color = Color3.new(0,0,0); lines[1].Thickness = outlineThickness
         lines[2].From = topRight;     lines[2].To = bottomRight;    lines[2].Color = Color3.new(0,0,0); lines[2].Thickness = outlineThickness
         lines[3].From = bottomRight;  lines[3].To = bottomLeft;     lines[3].Color = Color3.new(0,0,0); lines[3].Thickness = outlineThickness
         lines[4].From = bottomLeft;   lines[4].To = topLeft;        lines[4].Color = Color3.new(0,0,0); lines[4].Thickness = outlineThickness
+        -- Основной цвет (линии 5-8)
         lines[5].From = topLeft;      lines[5].To = topRight;       lines[5].Color = color; lines[5].Thickness = thickness
         lines[6].From = topRight;     lines[6].To = bottomRight;    lines[6].Color = color; lines[6].Thickness = thickness
         lines[7].From = bottomRight;  lines[7].To = bottomLeft;     lines[7].Color = color; lines[7].Thickness = thickness
         lines[8].From = bottomLeft;   lines[8].To = topLeft;        lines[8].Color = color; lines[8].Thickness = thickness
         for i = 1, 8 do lines[i].Visible = true end
     else
+        -- Только основной цвет (4 линии)
         lines[1].From = topLeft;      lines[1].To = topRight;       lines[1].Color = color; lines[1].Thickness = thickness
         lines[2].From = topRight;     lines[2].To = bottomRight;    lines[2].Color = color; lines[2].Thickness = thickness
         lines[3].From = bottomRight;  lines[3].To = bottomLeft;     lines[3].Color = color; lines[3].Thickness = thickness
@@ -211,11 +206,15 @@ function BoxESP:_updateBox(box)
         for i = 1, 4 do lines[i].Visible = true end
     end
     
+    box.lastTopLeft = topLeft
+    box.lastTopRight = topRight
+    box.lastBottomLeft = bottomLeft
+    box.lastBottomRight = bottomRight
     box.visible = true
 end
 
 -- ============================================
---  ГЛАВНЫЙ ЦИКЛ (RenderStepped)
+--  ГЛАВНЫЙ ЦИКЛ (оптимизированный)
 -- ============================================
 function BoxESP:_startLoop()
     if self._connection then return end
@@ -254,6 +253,7 @@ function BoxESP:Toggle(state)
     end
 end
 
+-- Мгновенно меняет цвет у всех линий
 function BoxESP:SetColor(color)
     self.Color = color
     for _, box in pairs(self._players) do
@@ -266,9 +266,11 @@ function BoxESP:SetColor(color)
     end
 end
 
+-- Включить/выключить Outline (пересоздаёт линии)
 function BoxESP:SetOutline(enable)
     if self.UseOutline == enable then return end
     self.UseOutline = enable
+    -- Пересоздаём линии для всех игроков
     for player, box in pairs(self._players) do
         for _, line in pairs(box.lines) do
             line:Remove()
@@ -283,7 +285,7 @@ function BoxESP:Unload()
 end
 
 -- ============================================
---  АВТО-ОЧИСТКА ПРИ ВЫХОДЕ ИГРОКА
+--  АВТО-ОЧИСТКА
 -- ============================================
 Players.PlayerRemoving:Connect(function(player)
     if BoxESP._players[player] then
