@@ -1,5 +1,5 @@
 -- ============================================
---  HealthESP Module by nitarte (исправленный)
+--  HealthESP Module by nitarte (по мотивам BoxESP)
 --  Вертикальная полоска здоровья справа от игрока
 -- ============================================
 
@@ -10,7 +10,7 @@ local HealthESP = {
     Width = 6,
     OffsetX = 10,
     Position = "Right",
-    
+
     _players = {},
     _connection = nil,
     _cleaning = false,
@@ -62,30 +62,33 @@ local function GetBottomPart(character)
 end
 
 -- ============================================
---  СОЗДАНИЕ ОБЪЕКТОВ
+--  СОЗДАНИЕ ОБЪЕКТОВ ДЛЯ ИГРОКА
 -- ============================================
 function HealthESP:_createPlayerObjects(player)
+    if not canDrawSquare then return nil end
+
     local objects = {
         player = player,
         background = nil,
         fill = nil,
+        character = nil,
         visible = false
     }
-    
+
     local bg = Drawing.new("Square")
     bg.Visible = false
     bg.Color = Color3.fromRGB(30, 30, 30)
     bg.Thickness = 0
     bg.Filled = true
     bg.Transparency = 0.5
-    
+
     local fill = Drawing.new("Square")
     fill.Visible = false
     fill.Color = self.ColorHigh
     fill.Thickness = 0
     fill.Filled = true
     fill.Transparency = 0.8
-    
+
     objects.background = bg
     objects.fill = fill
     self._players[player] = objects
@@ -93,7 +96,7 @@ function HealthESP:_createPlayerObjects(player)
 end
 
 -- ============================================
---  УДАЛЕНИЕ
+--  УДАЛЕНИЕ ОБЪЕКТОВ
 -- ============================================
 function HealthESP:_removePlayer(player)
     local objs = self._players[player]
@@ -120,7 +123,7 @@ function HealthESP:_clearAll()
 end
 
 -- ============================================
---  ОБНОВЛЕНИЕ ПОЛОСКИ
+--  ОБНОВЛЕНИЕ ПОЛОСКИ ЗДОРОВЬЯ
 -- ============================================
 function HealthESP:_updatePlayer(objs)
     local player = objs.player
@@ -128,8 +131,15 @@ function HealthESP:_updatePlayer(objs)
         self:_removePlayer(player)
         return
     end
-    
+
     local character = player.Character
+
+    -- Если персонаж изменился (респавн) — сбрасываем состояние
+    if objs.character ~= character then
+        objs.character = character
+        objs.visible = false
+    end
+
     if not character then
         if objs.visible then
             objs.background.Visible = false
@@ -138,11 +148,11 @@ function HealthESP:_updatePlayer(objs)
         end
         return
     end
-    
+
     local head = character:FindFirstChild("Head")
     local humanoid = character:FindFirstChildOfClass("Humanoid")
     local bottomPos = GetBottomPart(character)
-    
+
     if not head or not humanoid or humanoid.Health <= 0 or not bottomPos then
         if objs.visible then
             objs.background.Visible = false
@@ -151,14 +161,14 @@ function HealthESP:_updatePlayer(objs)
         end
         return
     end
-    
+
     local health = humanoid.Health
     local maxHealth = humanoid.MaxHealth
     local healthPercent = math.clamp(health / maxHealth, 0, 1)
-    
+
     local headScreen, headOn = Camera:WorldToViewportPoint(head.Position)
     local bottomScreen, bottomOn = Camera:WorldToViewportPoint(bottomPos)
-    
+
     if not headOn and not bottomOn then
         if objs.visible then
             objs.background.Visible = false
@@ -167,58 +177,61 @@ function HealthESP:_updatePlayer(objs)
         end
         return
     end
-    
+
     local height = math.abs(bottomScreen.Y - headScreen.Y)
-    if height < 1 then height = 1 end   -- ✅ исправлено: добавлен end
+    if height < 1 then height = 1 end
     local barHeight = height + 10
     local barWidth = self.Width
-    
+
     local centerX = (headScreen.X + bottomScreen.X) / 2
     local topY = headScreen.Y - 5
-    local bottomY = bottomScreen.Y + 5
-    
+
     local barX
     if self.Position == "Left" then
         barX = centerX - barWidth - self.OffsetX
     else
         barX = centerX + self.OffsetX
     end
-    
+
+    -- Фон
     objs.background.Position = Vector2.new(barX, topY)
     objs.background.Size = Vector2.new(barWidth, barHeight)
     objs.background.Visible = true
     objs.background.Color = Color3.fromRGB(30, 30, 30)
-    
+
+    -- Заполнение (снизу вверх)
     local fillHeight = barHeight * healthPercent
     local fillY = topY + (barHeight - fillHeight)
     local color = self.ColorLow:Lerp(self.ColorHigh, healthPercent)
-    
+
     objs.fill.Position = Vector2.new(barX, fillY)
     objs.fill.Size = Vector2.new(barWidth, fillHeight)
     objs.fill.Visible = true
     objs.fill.Color = color
     objs.fill.Transparency = 0.8
-    
+
     objs.visible = true
 end
 
 -- ============================================
---  ГЛАВНЫЙ ЦИКЛ
+--  ГЛАВНЫЙ ЦИКЛ (как в BoxESP)
 -- ============================================
 function HealthESP:_startLoop()
     if self._connection then return end
     self._connection = RunService.RenderStepped:Connect(function()
         if not self.Enabled then return end
-        
+
         self._frameCounter = self._frameCounter + 1
         if self._frameCounter % 2 ~= 0 then return end
-        
+
+        -- Добавляем новых игроков
         for _, player in pairs(Players:GetPlayers()) do
             if player ~= LocalPlayer and not self._players[player] then
                 self:_createPlayerObjects(player)
             end
         end
-        
+
+        -- Обновляем все полоски
         for _, objs in pairs(self._players) do
             self:_updatePlayer(objs)
         end
@@ -232,6 +245,12 @@ end
 function HealthESP:Toggle(state)
     self.Enabled = state
     if state then
+        -- Создаём объекты для всех существующих игроков (как в BoxESP)
+        for _, player in pairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and not self._players[player] then
+                self:_createPlayerObjects(player)
+            end
+        end
         self:_startLoop()
     else
         for _, objs in pairs(self._players) do
@@ -251,7 +270,7 @@ function HealthESP:SetWidth(width)
     self.Width = math.max(width, 2)
 end
 
-function HealthESP:SetOffset(offsetX, offsetY)
+function HealthESP:SetOffset(offsetX)
     self.OffsetX = offsetX or self.OffsetX
 end
 
@@ -266,6 +285,7 @@ function HealthESP:Unload()
     self.Enabled = false
 end
 
+-- Авто-удаление при выходе игрока
 Players.PlayerRemoving:Connect(function(player)
     if HealthESP._players[player] then
         HealthESP:_removePlayer(player)
