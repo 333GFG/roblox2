@@ -1,7 +1,7 @@
 -- ============================================
---  BoxESP Module by nitarte (v3.1 — РАБОЧИЙ)
---  Использует ноги для нижней границы бокса
---  Поддержка R6 и R15
+--  BoxESP Module by nitarte (v4.0 — РАБОЧИЙ)
+--  2D Box ESP вокруг ВСЕГО персонажа (включая ноги)
+--  Основан на: Blissful4992 + WA-ESP
 -- ============================================
 
 local BoxESP = {
@@ -23,33 +23,35 @@ local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 
 -- ============================================
---  ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ – ПОЛУЧИТЬ НИЖНЮЮ ТОЧКУ
+--  ПОЛУЧИТЬ НИЖНЮЮ ТОЧКУ ПЕРСОНАЖА (ноги)
 -- ============================================
-local function GetLowestPoint(character)
-    -- Собираем все BasePart (кроме игнорируемых)
-    local parts = {}
-    for _, child in ipairs(character:GetDescendants()) do
-        if child:IsA("BasePart") and child.Transparency < 1 then
-            table.insert(parts, child)
-        end
+local function GetBottomPart(character)
+    -- R15
+    local leftFoot = character:FindFirstChild("LeftFoot")
+    local rightFoot = character:FindFirstChild("RightFoot")
+    if leftFoot and rightFoot then
+        -- Возвращаем точку между ног (среднее арифметическое)
+        return (leftFoot.Position + rightFoot.Position) / 2
     end
-    if #parts == 0 then return nil end
     
-    -- Находим самую нижнюю Y-координату
-    local lowestY = math.huge
-    local lowestPart = nil
-    for _, part in ipairs(parts) do
-        local pos = part.Position
-        if pos.Y < lowestY then
-            lowestY = pos.Y
-            lowestPart = part
-        end
+    -- R6
+    local leftLeg = character:FindFirstChild("Left Leg")
+    local rightLeg = character:FindFirstChild("Right Leg")
+    if leftLeg and rightLeg then
+        return (leftLeg.Position + rightLeg.Position) / 2
     end
-    return lowestPart and lowestPart.Position or nil
+    
+    -- Fallback на HumanoidRootPart
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        return hrp.Position - Vector3.new(0, 2.5, 0)  -- примерно на уровне ног
+    end
+    
+    return nil
 end
 
 -- ============================================
---  СОЗДАНИЕ ЛИНИЙ ДЛЯ ОДНОГО ИГРОКА
+--  СОЗДАНИЕ ЛИНИЙ
 -- ============================================
 function BoxESP:_createBox(player)
     local box = {
@@ -57,7 +59,7 @@ function BoxESP:_createBox(player)
         lines = {},
     }
     
-    -- 4 линии для основного бокса + 4 для outline (чёрная обводка)
+    -- 4 линии основного бокса + 4 для outline
     for i = 1, 8 do
         local line = Drawing.new("Line")
         line.Visible = false
@@ -99,7 +101,7 @@ function BoxESP:_clearAll()
 end
 
 -- ============================================
---  ОБНОВЛЕНИЕ БОКСА (ГЛАВНАЯ ФУНКЦИЯ)
+--  ОБНОВЛЕНИЕ БОКСА
 -- ============================================
 function BoxESP:_updateBox(box)
     if not box.player or not box.player.Parent then
@@ -113,11 +115,11 @@ function BoxESP:_updateBox(box)
         return
     end
     
-    local hrp = character:FindFirstChild("HumanoidRootPart")
     local head = character:FindFirstChild("Head")
     local humanoid = character:FindFirstChildOfClass("Humanoid")
+    local bottomPos = GetBottomPart(character)
     
-    if not hrp or not head or not humanoid or humanoid.Health <= 0 then
+    if not head or not humanoid or humanoid.Health <= 0 or not bottomPos then
         for _, line in pairs(box.lines) do line.Visible = false end
         return
     end
@@ -128,57 +130,54 @@ function BoxESP:_updateBox(box)
         return
     end
     
-    -- Дистанция
-    local distance = (hrp.Position - Camera.CFrame.Position).Magnitude
+    -- Дистанция от камеры до головы
+    local distance = (head.Position - Camera.CFrame.Position).Magnitude
     if distance > self.MaxDistance then
         for _, line in pairs(box.lines) do line.Visible = false end
         return
     end
     
-    -- Получаем нижнюю точку (ноги)
-    local lowestPos = GetLowestPoint(character)
-    if not lowestPos then
-        for _, line in pairs(box.lines) do line.Visible = false end
-        return
-    end
+    -- Проецируем на экран
+    local headScreen, headOnScreen = Camera:WorldToViewportPoint(head.Position)
+    local bottomScreen, bottomOnScreen = Camera:WorldToViewportPoint(bottomPos)
     
-    -- Проецируем на экран: голова, HRP, нижняя точка
-    local headPos, headOnScreen = Camera:WorldToViewportPoint(head.Position)
-    local hrpPos, hrpOnScreen = Camera:WorldToViewportPoint(hrp.Position)
-    local footPos, footOnScreen = Camera:WorldToViewportPoint(lowestPos)
-    
-    if not headOnScreen and not hrpOnScreen and not footOnScreen then
+    if not headOnScreen and not bottomOnScreen then
         for _, line in pairs(box.lines) do line.Visible = false end
         return
     end
     
     -- ============================================
-    --  РАСЧЁТ РАЗМЕРА БОКСА (с использованием ног)
+    --  РАСЧЁТ РАЗМЕРА БОКСА (от головы до ног)
     -- ============================================
     
-    -- Верхняя точка = голова (с небольшим запасом вверх)
-    local topY = headPos.Y - 5  -- небольшой отступ сверху
+    -- Высота = от головы до ног на экране
+    local height = math.abs(bottomScreen.Y - headScreen.Y)
     
-    -- Нижняя точка = стопы (с небольшим запасом вниз)
-    local bottomY = footPos.Y + 5
-    
-    -- Высота бокса = разница между верхом и низом
-    local height = bottomY - topY
-    
-    -- Ширина = высота * 0.7 (пропорции Roblox, чуть шире для рук)
+    -- Ширина = высота * 0.6 (пропорции персонажа Roblox)
+    -- Увеличиваем до 0.7, чтобы точно захватить руки
     local width = height * 0.7
     
-    -- Центр по X = среднее между головой и нижней точкой
-    local centerX = (headPos.X + footPos.X) / 2
+    -- Центр по X
+    local centerX = (headScreen.X + bottomScreen.X) / 2
     
-    -- Координаты углов
+    -- Верхняя точка (немного выше головы)
+    local topY = headScreen.Y - height * 0.08
+    
+    -- Нижняя точка (немного ниже ног)
+    local bottomY = bottomScreen.Y + height * 0.05
+    
+    -- Пересчитываем высоту с отступами
+    height = bottomY - topY
+    width = height * 0.6
+    
+    -- Углы бокса
     local topLeft     = Vector2.new(centerX - width / 2, topY)
     local topRight    = Vector2.new(centerX + width / 2, topY)
     local bottomRight = Vector2.new(centerX + width / 2, bottomY)
     local bottomLeft  = Vector2.new(centerX - width / 2, bottomY)
     
     -- ============================================
-    --  ОБНОВЛЯЕМ ЛИНИИ (1-4 = outline, 5-8 = основной цвет)
+    --  ОБНОВЛЯЕМ ЛИНИИ (1-4 = outline, 5-8 = цвет)
     -- ============================================
     
     local lines = box.lines
@@ -186,19 +185,18 @@ function BoxESP:_updateBox(box)
     local thickness = self.Thickness
     local outlineThickness = thickness + 2
     
-    -- Outline (чёрная обводка) — линии 1-4
+    -- Outline (чёрная обводка)
     lines[1].From = topLeft;      lines[1].To = topRight;       lines[1].Color = Color3.new(0, 0, 0); lines[1].Thickness = outlineThickness
     lines[2].From = topRight;     lines[2].To = bottomRight;    lines[2].Color = Color3.new(0, 0, 0); lines[2].Thickness = outlineThickness
     lines[3].From = bottomRight;  lines[3].To = bottomLeft;     lines[3].Color = Color3.new(0, 0, 0); lines[3].Thickness = outlineThickness
     lines[4].From = bottomLeft;   lines[4].To = topLeft;        lines[4].Color = Color3.new(0, 0, 0); lines[4].Thickness = outlineThickness
     
-    -- Основной бокс — линии 5-8
+    -- Основной бокс
     lines[5].From = topLeft;      lines[5].To = topRight;       lines[5].Color = color; lines[5].Thickness = thickness
     lines[6].From = topRight;     lines[6].To = bottomRight;    lines[6].Color = color; lines[6].Thickness = thickness
     lines[7].From = bottomRight;  lines[7].To = bottomLeft;     lines[7].Color = color; lines[7].Thickness = thickness
     lines[8].From = bottomLeft;   lines[8].To = topLeft;        lines[8].Color = color; lines[8].Thickness = thickness
     
-    -- Показываем все линии
     for _, line in pairs(lines) do
         line.Visible = true
         line.Transparency = self.Transparency
@@ -214,14 +212,12 @@ function BoxESP:_startLoop()
     self._connection = RunService.RenderStepped:Connect(function()
         if not self.Enabled then return end
         
-        -- Добавляем новых игроков (включая себя, если нужно)
         for _, player in pairs(Players:GetPlayers()) do
             if player ~= LocalPlayer and not self._players[player] then
                 self:_createBox(player)
             end
         end
         
-        -- Обновляем все боксы
         for _, box in pairs(self._players) do
             self:_updateBox(box)
         end
