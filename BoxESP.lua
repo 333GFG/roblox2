@@ -1,6 +1,6 @@
 -- ============================================
---  BoxESP Module by nitarte (v7.0 — оптимизированный)
---  2D Box ESP + Name ESP (без пересозданий)
+--  BoxESP Module by nitarte (v7.1 — оптимизированный текст)
+--  Текст обновляется каждые 2 кадра
 -- ============================================
 
 local BoxESP = {
@@ -19,7 +19,8 @@ local BoxESP = {
     
     _players = {},
     _connection = nil,
-    _cleaning = false
+    _cleaning = false,
+    _frameCounter = 0
 }
 
 local Players = game:GetService("Players")
@@ -27,7 +28,7 @@ local RunService = game:GetService("RunService")
 local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 
--- Проверка поддержки текста (один раз)
+-- Проверка поддержки текста
 local canDrawText = pcall(function()
     local t = Drawing.new("Text")
     t:Remove()
@@ -63,7 +64,8 @@ function BoxESP:_createBox(player)
         player = player,
         lines = {},
         text = nil,
-        visible = false
+        visible = false,
+        lastTextPos = nil   -- для оптимизации
     }
     
     local count = self.UseOutline and 8 or 4
@@ -121,7 +123,7 @@ function BoxESP:_clearAll()
 end
 
 -- ============================================
---  ОБНОВЛЕНИЕ (БЕЗ ПЕРЕСОЗДАНИЙ)
+--  ОБНОВЛЕНИЕ БОКСА (БЕЗ ПЕРЕСОЗДАНИЙ)
 -- ============================================
 function BoxESP:_updateBox(box)
     local player = box.player
@@ -223,25 +225,34 @@ function BoxESP:_updateBox(box)
         for i = 1, 4 do lines[i].Visible = true end
     end
     
-    -- Имя
+    -- ============================================
+    --  ТЕКСТ (обновляется только каждый 2-й кадр)
+    -- ============================================
     if self.NameEnabled and box.text then
         local text = box.text
         text.Visible = true
-        text.Color = self.NameColor
-        text.Text = player.Name
         
-        local textX
-        local textY = topY - self.NameSize - 4
-        local boxWidth = topRight.X - topLeft.X
-        
-        if self.NamePosition == "Left" then
-            textX = topLeft.X
-        elseif self.NamePosition == "Right" then
-            textX = topRight.X - text.TextBounds.X
-        else
-            textX = topLeft.X + (boxWidth - text.TextBounds.X) / 2
+        -- Только если кадр чётный (каждые 2 кадра)
+        if self._frameCounter % 2 == 0 then
+            local textX
+            local textY = topY - self.NameSize - 4
+            local boxWidth = topRight.X - topLeft.X
+            
+            if self.NamePosition == "Left" then
+                textX = topLeft.X
+            elseif self.NamePosition == "Right" then
+                textX = topRight.X - text.TextBounds.X
+            else
+                textX = topLeft.X + (boxWidth - text.TextBounds.X) / 2
+            end
+            
+            -- Обновляем позицию только если она изменилась
+            local newPos = Vector2.new(textX, textY)
+            if not box.lastTextPos or box.lastTextPos ~= newPos then
+                text.Position = newPos
+                box.lastTextPos = newPos
+            end
         end
-        text.Position = Vector2.new(textX, textY)
     elseif box.text then
         box.text.Visible = false
     end
@@ -250,14 +261,16 @@ function BoxESP:_updateBox(box)
 end
 
 -- ============================================
---  ГЛАВНЫЙ ЦИКЛ (RenderStepped)
+--  ГЛАВНЫЙ ЦИКЛ (счётчик кадров)
 -- ============================================
 function BoxESP:_startLoop()
     if self._connection then return end
     self._connection = RunService.RenderStepped:Connect(function()
         if not self.Enabled then return end
         
-        -- Добавляем новых игроков (без пересоздания)
+        self._frameCounter = self._frameCounter + 1
+        
+        -- Добавляем новых игроков
         for _, player in pairs(Players:GetPlayers()) do
             if player ~= LocalPlayer and not self._players[player] then
                 self:_createBox(player)
@@ -321,7 +334,6 @@ end
 function BoxESP:SetOutline(enable)
     if self.UseOutline == enable then return end
     self.UseOutline = enable
-    -- Пересоздаём линии (только один раз при смене настройки)
     for player, box in pairs(self._players) do
         for _, line in pairs(box.lines) do line:Remove() end
         if box.text then box.text:Remove() end
