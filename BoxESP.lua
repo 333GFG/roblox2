@@ -21,8 +21,7 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
--- В BoxESP.lua добавь:
-BoxESP.ShowSelf = false  -- по умолчанию выключено
+
 -- ============================================
 --  СОЗДАНИЕ ЛИНИЙ ДЛЯ ОДНОГО ИГРОКА
 -- ============================================
@@ -181,7 +180,7 @@ function BoxESP:_startLoop()
         
         -- Добавляем новых игроков
         for _, player in pairs(Players:GetPlayers()) do
-            if (player ~= LocalPlayer or self.ShowSelf) and not self._players[player] then
+            if player ~= LocalPlayer and not self._players[player] then
                 self:_createBox(player)
             end
         end
