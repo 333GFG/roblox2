@@ -79,7 +79,7 @@ end
 
 -- Обновить позицию одного бокса
 function BoxESP:_updateBox(box)
-    -- Проверяем персонажа
+    -- Проверяем игрока
     if not box.player or not box.player.Parent then
         self:_removeBox(box.player)
         return
@@ -98,7 +98,7 @@ function BoxESP:_updateBox(box)
         return
     end
     
-    -- TeamCheck
+    -- TeamCheck (пропускаем тиммейтов, но для LocalPlayer если он в команде, то он тоже будет скрыт, если включено)
     if self.TeamCheck and box.player.Team == LocalPlayer.Team then
         for _, line in pairs(box.lines) do line.Visible = false end
         return
@@ -155,9 +155,9 @@ function BoxESP:_startLoop()
     self._connection = RunService.RenderStepped:Connect(function()
         if not self.Enabled then return end
         
-        -- Добавляем новых игроков
+        -- Добавляем новых игроков (ВКЛЮЧАЯ LocalPlayer)
         for _, player in pairs(Players:GetPlayers()) do
-            if player ~= LocalPlayer and not self._players[player] then
+            if not self._players[player] then
                 self:_createBox(player)
             end
         end
@@ -177,6 +177,12 @@ end
 function BoxESP:Toggle(state)
     self.Enabled = state
     if state then
+        -- Создаём боксы для ВСЕХ игроков (включая себя)
+        for _, player in pairs(Players:GetPlayers()) do
+            if not self._players[player] then
+                self:_createBox(player)
+            end
+        end
         self:_startLoop()
     else
         -- Прячем все линии
