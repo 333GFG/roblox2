@@ -1,18 +1,20 @@
 -- ============================================
---  DistanceESP Module by nitarte
+--  DistanceESP Module by nitarte (исправленный)
 --  Отображает расстояние до игроков (в студиях)
+--  Использует Center = true для надёжного центрирования
 -- ============================================
 
 local DistanceESP = {
     Enabled = false,
     Color = Color3.fromRGB(255, 255, 255),
     Size = 14,
-    Position = "Center",  -- "Left", "Center", "Right" (относительно бокса)
-    OffsetY = -25,        -- смещение по вертикали (отрицательное = выше)
-    
+    Position = "Center",
+    OffsetY = -25,
+
     _players = {},
     _connection = nil,
-    _cleaning = false
+    _cleaning = false,
+    _frameCounter = 0
 }
 
 local Players = game:GetService("Players")
@@ -32,30 +34,9 @@ if not canDrawText then
         SetColor = function() end,
         SetSize = function() end,
         SetPosition = function() end,
+        SetOffsetY = function() end,
         Unload = function() end,
     }
-end
-
--- ============================================
---  ПОЛУЧИТЬ НИЖНЮЮ ТОЧКУ (ноги) – для высоты бокса
--- ============================================
-local function GetBottomPart(character)
-    if not character then return nil end
-    local leftFoot = character:FindFirstChild("LeftFoot")
-    local rightFoot = character:FindFirstChild("RightFoot")
-    if leftFoot and rightFoot then
-        return (leftFoot.Position + rightFoot.Position) / 2
-    end
-    local leftLeg = character:FindFirstChild("Left Leg")
-    local rightLeg = character:FindFirstChild("Right Leg")
-    if leftLeg and rightLeg then
-        return (leftLeg.Position + rightLeg.Position) / 2
-    end
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    if hrp then
-        return hrp.Position - Vector3.new(0, 2.5, 0)
-    end
-    return nil
 end
 
 -- ============================================
@@ -73,7 +54,7 @@ function DistanceESP:_createPlayerObjects(player)
     text.Visible = false
     text.Color = self.Color
     text.Size = self.Size
-    text.Center = false
+    text.Center = true   -- ✅ включает авто-центрирование
     text.Outline = true
     text.OutlineColor = Color3.new(0, 0, 0)
     text.Font = Enum.Font.GothamBold
@@ -134,9 +115,7 @@ function DistanceESP:_updatePlayer(objs)
     end
 
     local hrp = character:FindFirstChild("HumanoidRootPart")
-    local head = character:FindFirstChild("Head")
     local humanoid = character:FindFirstChildOfClass("Humanoid")
-    local bottomPos = GetBottomPart(character)
 
     if not hrp or not humanoid or humanoid.Health <= 0 then
         if objs.visible then
@@ -146,11 +125,12 @@ function DistanceESP:_updatePlayer(objs)
         return
     end
 
-    -- Вычисляем расстояние от камеры до игрока
+    -- Расстояние от камеры до игрока
     local distance = (hrp.Position - Camera.CFrame.Position).Magnitude
-    local distText = string.format("%.0f", distance)  -- целое число
+    local distText = string.format("%.0f", distance)
 
-    -- Проекция головы и нижней точки для определения позиции
+    -- Голова для позиции текста
+    local head = character:FindFirstChild("Head")
     local headPos = head and head.Position or (hrp.Position + Vector3.new(0, 2, 0))
     local headScreen, headOn = Camera:WorldToViewportPoint(headPos)
 
@@ -162,27 +142,6 @@ function DistanceESP:_updatePlayer(objs)
         return
     end
 
-    -- Используем позицию головы, чтобы разместить текст над ней
-    local textX = headScreen.X
-    local textY = headScreen.Y + self.OffsetY  -- выше головы (отрицательное смещение)
-
-    -- Сдвиг в зависимости от Position (Left/Center/Right) относительно головы
-    -- Но у нас нет ширины бокса, поэтому используем просто смещение от центра.
-    -- Проще: если Position == "Center", то оставляем как есть.
-    -- Если "Left" или "Right", сдвигаем в сторону.
-    -- Для простоты можно оставить только Center и добавить OffsetX.
-    -- Но пользователь может захотеть слева/справа, как в Name ESP.
-    -- Однако у нас нет бокса, чтобы вычислить ширину. Поэтому предлагаю просто размещать над головой по центру,
-    -- а сдвиг по X задавать через отдельный параметр или игнорировать Position.
-    -- Лучше сделать как в Name ESP: используем ширину бокса, если BoxESP активен?
-    -- Но это усложнит. Предлагаю размещать над головой по центру, а Position использовать для
-    -- горизонтального выравнивания относительно головы (но без учёта ширины).
-
-    -- Сделаем так: определяем ширину головы (примерно) и сдвигаем.
-    -- Но проще: использовать OffsetX отдельно.
-    -- Для этого добавим свойство OffsetX = 0 по умолчанию.
-    -- Пока оставим только OffsetY.
-
     -- Обновляем текст
     local text = objs.text
     text.Visible = true
@@ -190,32 +149,30 @@ function DistanceESP:_updatePlayer(objs)
     text.Size = self.Size
     text.Text = distText
 
-    -- Центрируем текст по X относительно головы
-    local textBounds = text.TextBounds
-    text.Position = Vector2.new(textX - textBounds.X / 2, textY)
+    -- Позиция: X = центр головы, Y = выше на OffsetY
+    -- Center = true автоматически центрирует по X
+    text.Position = Vector2.new(headScreen.X, headScreen.Y + self.OffsetY)
 
     objs.visible = true
 end
 
 -- ============================================
---  ГЛАВНЫЙ ЦИКЛ (обновление раз в 2 кадра)
+--  ГЛАВНЫЙ ЦИКЛ (каждые 2 кадра)
 -- ============================================
 function DistanceESP:_startLoop()
     if self._connection then return end
     self._connection = RunService.RenderStepped:Connect(function()
         if not self.Enabled then return end
 
-        self._frameCounter = (self._frameCounter or 0) + 1
+        self._frameCounter = self._frameCounter + 1
         if self._frameCounter % 2 ~= 0 then return end
 
-        -- Добавляем новых игроков
         for _, player in pairs(Players:GetPlayers()) do
             if player ~= LocalPlayer and not self._players[player] then
                 self:_createPlayerObjects(player)
             end
         end
 
-        -- Обновляем все дистанции
         for _, objs in pairs(self._players) do
             self:_updatePlayer(objs)
         end
@@ -229,7 +186,6 @@ end
 function DistanceESP:Toggle(state)
     self.Enabled = state
     if state then
-        -- Создаём объекты для всех существующих игроков
         for _, player in pairs(Players:GetPlayers()) do
             if player ~= LocalPlayer and not self._players[player] then
                 self:_createPlayerObjects(player)
@@ -259,7 +215,6 @@ function DistanceESP:SetSize(size)
 end
 
 function DistanceESP:SetPosition(pos)
-    -- Position игнорируется, так как мы центрируем над головой
     self.Position = pos or "Center"
 end
 
@@ -272,7 +227,6 @@ function DistanceESP:Unload()
     self.Enabled = false
 end
 
--- Авто-удаление при выходе игрока
 Players.PlayerRemoving:Connect(function(player)
     if DistanceESP._players[player] then
         DistanceESP:_removePlayer(player)
