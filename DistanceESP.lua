@@ -1,6 +1,7 @@
 -- ============================================
---  DistanceESP Module by nitarte (с ЛОГАМИ + ИСПРАВЛЕНИЕ)
+--  DistanceESP Module by nitarte (БЕЗ Font)
 --  Отображает расстояние до игроков (в студиях)
+--  Исправлена ошибка с Enum.Font
 -- ============================================
 
 print("[DistanceESP] Модуль начал загрузку")
@@ -68,7 +69,7 @@ local function GetBottomPart(character)
 end
 
 -- ============================================
---  СОЗДАНИЕ ТЕКСТА ДЛЯ ИГРОКА
+--  СОЗДАНИЕ ТЕКСТА ДЛЯ ИГРОКА (ИСПРАВЛЕНО)
 -- ============================================
 function DistanceESP:_createPlayerObjects(player)
     print("[DistanceESP] _createPlayerObjects для", player.Name)
@@ -79,27 +80,16 @@ function DistanceESP:_createPlayerObjects(player)
         visible = false
     }
 
-    print("[DistanceESP] Создаём Drawing.new('Text')")
     local text = Drawing.new("Text")
-    if not text then
-        warn("[DistanceESP] Не удалось создать текст")
-        return objects
-    end
-    print("[DistanceESP] Текст создан")
-
-    -- Устанавливаем свойства по одному, чтобы отследить ошибку
-    pcall(function()
-        text.Visible = false
-        text.Color = self.Color
-        text.Size = self.Size
-        -- Используем числа вместо булевых значений
-        text.Center = 1
-        text.Outline = 1
-        text.OutlineColor = Color3.new(0, 0, 0)
-        -- Убираем Enum.Font, используем число (3 = GothamBold в Roblox)
-        text.Font = 3
-        text.Text = "0"
-    end)
+    text.Visible = false
+    text.Color = self.Color
+    text.Size = self.Size
+    text.Center = true
+    text.Outline = true
+    text.OutlineColor = Color3.new(0, 0, 0)
+    -- Убираем Font, чтобы избежать ошибки с Enum
+    -- text.Font = Enum.Font.GothamBold
+    text.Text = "0"
 
     objects.text = text
     self._players[player] = objects
