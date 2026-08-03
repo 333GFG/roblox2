@@ -1,7 +1,7 @@
 -- ============================================
---  BoxESP Module by nitarte (v3.0 — РАБОЧИЙ)
---  Рабочий 2D Box ESP вокруг персонажа
---  Основан на: Blissful4992 (проверенный метод)
+--  BoxESP Module by nitarte (v3.1 — РАБОЧИЙ)
+--  Использует ноги для нижней границы бокса
+--  Поддержка R6 и R15
 -- ============================================
 
 local BoxESP = {
@@ -23,6 +23,32 @@ local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 
 -- ============================================
+--  ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ – ПОЛУЧИТЬ НИЖНЮЮ ТОЧКУ
+-- ============================================
+local function GetLowestPoint(character)
+    -- Собираем все BasePart (кроме игнорируемых)
+    local parts = {}
+    for _, child in ipairs(character:GetDescendants()) do
+        if child:IsA("BasePart") and child.Transparency < 1 then
+            table.insert(parts, child)
+        end
+    end
+    if #parts == 0 then return nil end
+    
+    -- Находим самую нижнюю Y-координату
+    local lowestY = math.huge
+    local lowestPart = nil
+    for _, part in ipairs(parts) do
+        local pos = part.Position
+        if pos.Y < lowestY then
+            lowestY = pos.Y
+            lowestPart = part
+        end
+    end
+    return lowestPart and lowestPart.Position or nil
+end
+
+-- ============================================
 --  СОЗДАНИЕ ЛИНИЙ ДЛЯ ОДНОГО ИГРОКА
 -- ============================================
 function BoxESP:_createBox(player)
@@ -31,7 +57,7 @@ function BoxESP:_createBox(player)
         lines = {},
     }
     
-    -- 4 линии для полного бокса + 4 для outline (чёрная обводка)
+    -- 4 линии для основного бокса + 4 для outline (чёрная обводка)
     for i = 1, 8 do
         local line = Drawing.new("Line")
         line.Visible = false
@@ -109,37 +135,47 @@ function BoxESP:_updateBox(box)
         return
     end
     
-    -- ПРОВЕРЯЕМ ВИДИМОСТЬ НА ЭКРАНЕ
+    -- Получаем нижнюю точку (ноги)
+    local lowestPos = GetLowestPoint(character)
+    if not lowestPos then
+        for _, line in pairs(box.lines) do line.Visible = false end
+        return
+    end
+    
+    -- Проецируем на экран: голова, HRP, нижняя точка
     local headPos, headOnScreen = Camera:WorldToViewportPoint(head.Position)
     local hrpPos, hrpOnScreen = Camera:WorldToViewportPoint(hrp.Position)
+    local footPos, footOnScreen = Camera:WorldToViewportPoint(lowestPos)
     
-    if not headOnScreen and not hrpOnScreen then
+    if not headOnScreen and not hrpOnScreen and not footOnScreen then
         for _, line in pairs(box.lines) do line.Visible = false end
         return
     end
     
     -- ============================================
-    --  РАСЧЁТ РАЗМЕРА БОКСА (метод Blissful4992)
+    --  РАСЧЁТ РАЗМЕРА БОКСА (с использованием ног)
     -- ============================================
     
-    -- Высота бокса = расстояние от головы до HRP на экране
-    local height = math.abs(headPos.Y - hrpPos.Y)
+    -- Верхняя точка = голова (с небольшим запасом вверх)
+    local topY = headPos.Y - 5  -- небольшой отступ сверху
     
-    -- Ширина = высота * 0.65 (пропорции персонажа Roblox)
-    -- Увеличиваем множитель, чтобы захватить руки
-    local width = height * 0.75
+    -- Нижняя точка = стопы (с небольшим запасом вниз)
+    local bottomY = footPos.Y + 5
     
-    -- Центр бокса по X = середина между головой и HRP
-    local centerX = (headPos.X + hrpPos.X) / 2
+    -- Высота бокса = разница между верхом и низом
+    local height = bottomY - topY
     
-    -- Верхняя точка бокса (немного выше головы)
-    local topY = headPos.Y - height * 0.15
+    -- Ширина = высота * 0.7 (пропорции Roblox, чуть шире для рук)
+    local width = height * 0.7
     
-    -- Координаты углов бокса
+    -- Центр по X = среднее между головой и нижней точкой
+    local centerX = (headPos.X + footPos.X) / 2
+    
+    -- Координаты углов
     local topLeft     = Vector2.new(centerX - width / 2, topY)
     local topRight    = Vector2.new(centerX + width / 2, topY)
-    local bottomRight = Vector2.new(centerX + width / 2, hrpPos.Y + height * 0.15)
-    local bottomLeft  = Vector2.new(centerX - width / 2, hrpPos.Y + height * 0.15)
+    local bottomRight = Vector2.new(centerX + width / 2, bottomY)
+    local bottomLeft  = Vector2.new(centerX - width / 2, bottomY)
     
     -- ============================================
     --  ОБНОВЛЯЕМ ЛИНИИ (1-4 = outline, 5-8 = основной цвет)
@@ -178,7 +214,7 @@ function BoxESP:_startLoop()
     self._connection = RunService.RenderStepped:Connect(function()
         if not self.Enabled then return end
         
-        -- Добавляем новых игроков
+        -- Добавляем новых игроков (включая себя, если нужно)
         for _, player in pairs(Players:GetPlayers()) do
             if player ~= LocalPlayer and not self._players[player] then
                 self:_createBox(player)
