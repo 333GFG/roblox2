@@ -1,16 +1,15 @@
 -- ============================================
---  DistanceESP Module by nitarte (исправленный)
---  Отображает расстояние до игроков (в студиях)
---  Использует Center = true для надёжного центрирования
+--  DistanceESP Module by nitarte (fixed)
+--  Отображает расстояние до игроков
 -- ============================================
 
 local DistanceESP = {
     Enabled = false,
     Color = Color3.fromRGB(255, 255, 255),
     Size = 14,
-    Position = "Center",
-    OffsetY = -25,
-
+    Position = "Center", -- "Left", "Center", "Right"
+    OffsetY = -25,       -- смещение по вертикали (отрицательное = выше)
+    
     _players = {},
     _connection = nil,
     _cleaning = false,
@@ -40,6 +39,28 @@ if not canDrawText then
 end
 
 -- ============================================
+--  ПОЛУЧИТЬ НИЖНЮЮ ТОЧКУ (ноги)
+-- ============================================
+local function GetBottomPart(character)
+    if not character then return nil end
+    local leftFoot = character:FindFirstChild("LeftFoot")
+    local rightFoot = character:FindFirstChild("RightFoot")
+    if leftFoot and rightFoot then
+        return (leftFoot.Position + rightFoot.Position) / 2
+    end
+    local leftLeg = character:FindFirstChild("Left Leg")
+    local rightLeg = character:FindFirstChild("Right Leg")
+    if leftLeg and rightLeg then
+        return (leftLeg.Position + rightLeg.Position) / 2
+    end
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        return hrp.Position - Vector3.new(0, 2.5, 0)
+    end
+    return nil
+end
+
+-- ============================================
 --  СОЗДАНИЕ ТЕКСТА ДЛЯ ИГРОКА
 -- ============================================
 function DistanceESP:_createPlayerObjects(player)
@@ -49,17 +70,17 @@ function DistanceESP:_createPlayerObjects(player)
         character = nil,
         visible = false
     }
-
+    
     local text = Drawing.new("Text")
     text.Visible = false
     text.Color = self.Color
     text.Size = self.Size
-    text.Center = true   -- ✅ включает авто-центрирование
+    text.Center = true              -- ← ИСПРАВЛЕНИЕ: авто-центрирование по X
     text.Outline = true
     text.OutlineColor = Color3.new(0, 0, 0)
     text.Font = Enum.Font.GothamBold
     text.Text = "0"
-
+    
     objects.text = text
     self._players[player] = objects
     return objects
@@ -99,13 +120,13 @@ function DistanceESP:_updatePlayer(objs)
         self:_removePlayer(player)
         return
     end
-
+    
     local character = player.Character
     if objs.character ~= character then
         objs.character = character
         objs.visible = false
     end
-
+    
     if not character then
         if objs.visible then
             objs.text.Visible = false
@@ -113,10 +134,11 @@ function DistanceESP:_updatePlayer(objs)
         end
         return
     end
-
+    
     local hrp = character:FindFirstChild("HumanoidRootPart")
+    local head = character:FindFirstChild("Head")
     local humanoid = character:FindFirstChildOfClass("Humanoid")
-
+    
     if not hrp or not humanoid or humanoid.Health <= 0 then
         if objs.visible then
             objs.text.Visible = false
@@ -124,16 +146,15 @@ function DistanceESP:_updatePlayer(objs)
         end
         return
     end
-
+    
     -- Расстояние от камеры до игрока
     local distance = (hrp.Position - Camera.CFrame.Position).Magnitude
     local distText = string.format("%.0f", distance)
-
-    -- Голова для позиции текста
-    local head = character:FindFirstChild("Head")
+    
+    -- Проекция головы на экран
     local headPos = head and head.Position or (hrp.Position + Vector3.new(0, 2, 0))
     local headScreen, headOn = Camera:WorldToViewportPoint(headPos)
-
+    
     if not headOn then
         if objs.visible then
             objs.text.Visible = false
@@ -141,38 +162,39 @@ function DistanceESP:_updatePlayer(objs)
         end
         return
     end
-
-    -- Обновляем текст
+    
     local text = objs.text
     text.Visible = true
     text.Color = self.Color
     text.Size = self.Size
     text.Text = distText
-
-    -- Позиция: X = центр головы, Y = выше на OffsetY
-    -- Center = true автоматически центрирует по X
+    
+    -- ← ИСПРАВЛЕНИЕ: убрано ручное центрирование через TextBounds
+    -- С Center = true достаточно просто указать X = центр головы
     text.Position = Vector2.new(headScreen.X, headScreen.Y + self.OffsetY)
-
+    
     objs.visible = true
 end
 
 -- ============================================
---  ГЛАВНЫЙ ЦИКЛ (каждые 2 кадра)
+--  ГЛАВНЫЙ ЦИКЛ
 -- ============================================
 function DistanceESP:_startLoop()
     if self._connection then return end
     self._connection = RunService.RenderStepped:Connect(function()
         if not self.Enabled then return end
-
+        
         self._frameCounter = self._frameCounter + 1
         if self._frameCounter % 2 ~= 0 then return end
-
+        
+        -- Добавляем новых игроков
         for _, player in pairs(Players:GetPlayers()) do
             if player ~= LocalPlayer and not self._players[player] then
                 self:_createPlayerObjects(player)
             end
         end
-
+        
+        -- Обновляем все дистанции
         for _, objs in pairs(self._players) do
             self:_updatePlayer(objs)
         end
@@ -227,6 +249,7 @@ function DistanceESP:Unload()
     self.Enabled = false
 end
 
+-- Авто-удаление при выходе игрока
 Players.PlayerRemoving:Connect(function(player)
     if DistanceESP._players[player] then
         DistanceESP:_removePlayer(player)
