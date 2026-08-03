@@ -1,8 +1,7 @@
 -- ============================================
---  BoxESP Module by nitarte (v2.0)
---  Рабочий 2D Box ESP вокруг ВСЕГО персонажа
---  Использует Roblox Drawing API
---  Основан на: Blissful4992, Stefanuk12, WA-ESP
+--  BoxESP Module by nitarte (v3.0 — РАБОЧИЙ)
+--  Рабочий 2D Box ESP вокруг персонажа
+--  Основан на: Blissful4992 (проверенный метод)
 -- ============================================
 
 local BoxESP = {
@@ -12,105 +11,34 @@ local BoxESP = {
     Transparency = 1,
     TeamCheck = false,
     MaxDistance = 2000,
-
-    -- Внутренние таблицы
+    
     _players = {},
     _connection = nil,
     _cleaning = false
 }
 
--- Сервисы
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 
 -- ============================================
---  ГЛАВНАЯ ФУНКЦИЯ: Получить 2D бокс персонажа
---  Использует Model:GetExtentsSize() — точно охватывает всё тело
--- ============================================
-local function GetCharacterBox(character)
-    if not character then return nil end
-
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return nil end
-
-    -- Получаем реальные границы модели (включая все части тела)
-    local success, extentSize = pcall(function()
-        return character:GetExtentsSize()
-    end)
-
-    if not success or not extentSize then return nil end
-
-    -- Центр модели
-    local cf = hrp.CFrame
-    local pos = cf.Position
-
-    -- Размеры bounding box
-    local sizeX = extentSize.X
-    local sizeY = extentSize.Y
-    local sizeZ = extentSize.Z
-
-    -- 8 углов 3D бокса (относительно центра модели)
-    local corners = {
-        pos + cf.RightVector * (sizeX/2) + cf.UpVector * (sizeY/2) + cf.LookVector * (sizeZ/2),
-        pos + cf.RightVector * (sizeX/2) + cf.UpVector * (sizeY/2) - cf.LookVector * (sizeZ/2),
-        pos + cf.RightVector * (sizeX/2) - cf.UpVector * (sizeY/2) + cf.LookVector * (sizeZ/2),
-        pos + cf.RightVector * (sizeX/2) - cf.UpVector * (sizeY/2) - cf.LookVector * (sizeZ/2),
-        pos - cf.RightVector * (sizeX/2) + cf.UpVector * (sizeY/2) + cf.LookVector * (sizeZ/2),
-        pos - cf.RightVector * (sizeX/2) + cf.UpVector * (sizeY/2) - cf.LookVector * (sizeZ/2),
-        pos - cf.RightVector * (sizeX/2) - cf.UpVector * (sizeY/2) + cf.LookVector * (sizeZ/2),
-        pos - cf.RightVector * (sizeX/2) - cf.UpVector * (sizeY/2) - cf.LookVector * (sizeZ/2),
-    }
-
-    -- Конвертируем в 2D экранные координаты
-    local minX, minY = math.huge, math.huge
-    local maxX, maxY = -math.huge, -math.huge
-    local anyOnScreen = false
-
-    for _, corner in pairs(corners) do
-        local screenPos, onScreen = Camera:WorldToViewportPoint(corner)
-
-        if onScreen then
-            anyOnScreen = true
-        end
-
-        minX = math.min(minX, screenPos.X)
-        minY = math.min(minY, screenPos.Y)
-        maxX = math.max(maxX, screenPos.X)
-        maxY = math.max(maxY, screenPos.Y)
-    end
-
-    if not anyOnScreen then return nil end
-
-    return {
-        min = Vector2.new(minX, minY),
-        max = Vector2.new(maxX, maxY),
-        width = maxX - minX,
-        height = maxY - minY,
-        center = Vector2.new((minX + maxX) / 2, (minY + maxY) / 2)
-    }
-end
-
--- ============================================
---  УПРАВЛЕНИЕ ОБЪЕКТАМИ DRAWING
+--  СОЗДАНИЕ ЛИНИЙ ДЛЯ ОДНОГО ИГРОКА
 -- ============================================
 function BoxESP:_createBox(player)
     local box = {
         player = player,
         lines = {},
     }
-
-    -- Создаём 4 линии для полного бокса
-    for i = 1, 4 do
+    
+    -- 4 линии для полного бокса + 4 для outline (чёрная обводка)
+    for i = 1, 8 do
         local line = Drawing.new("Line")
         line.Visible = false
-        line.Color = self.Color
-        line.Thickness = self.Thickness
         line.Transparency = self.Transparency
         table.insert(box.lines, line)
     end
-
+    
     self._players[player] = box
     return box
 end
@@ -128,90 +56,115 @@ end
 function BoxESP:_clearAll()
     if self._cleaning then return end
     self._cleaning = true
-
+    
     for player, box in pairs(self._players) do
         for _, line in pairs(box.lines) do
             line:Remove()
         end
     end
     table.clear(self._players)
-
+    
     if self._connection then
         self._connection:Disconnect()
         self._connection = nil
     end
-
+    
     self._cleaning = false
 end
 
 -- ============================================
---  ОБНОВЛЕНИЕ ПОЗИЦИИ БОКСА
+--  ОБНОВЛЕНИЕ БОКСА (ГЛАВНАЯ ФУНКЦИЯ)
 -- ============================================
 function BoxESP:_updateBox(box)
-    -- Проверяем игрока
     if not box.player or not box.player.Parent then
         self:_removeBox(box.player)
         return
     end
-
+    
     local character = box.player.Character
     if not character then
         for _, line in pairs(box.lines) do line.Visible = false end
         return
     end
-
+    
     local hrp = character:FindFirstChild("HumanoidRootPart")
+    local head = character:FindFirstChild("Head")
     local humanoid = character:FindFirstChildOfClass("Humanoid")
-    if not hrp or not humanoid or humanoid.Health <= 0 then
+    
+    if not hrp or not head or not humanoid or humanoid.Health <= 0 then
         for _, line in pairs(box.lines) do line.Visible = false end
         return
     end
-
+    
     -- TeamCheck
     if self.TeamCheck and box.player.Team == LocalPlayer.Team then
         for _, line in pairs(box.lines) do line.Visible = false end
         return
     end
-
+    
     -- Дистанция
     local distance = (hrp.Position - Camera.CFrame.Position).Magnitude
     if distance > self.MaxDistance then
         for _, line in pairs(box.lines) do line.Visible = false end
         return
     end
-
-    -- Получаем 2D бокс персонажа
-    local bounds = GetCharacterBox(character)
-
-    if not bounds then
+    
+    -- ПРОВЕРЯЕМ ВИДИМОСТЬ НА ЭКРАНЕ
+    local headPos, headOnScreen = Camera:WorldToViewportPoint(head.Position)
+    local hrpPos, hrpOnScreen = Camera:WorldToViewportPoint(hrp.Position)
+    
+    if not headOnScreen and not hrpOnScreen then
         for _, line in pairs(box.lines) do line.Visible = false end
         return
     end
-
-    -- Проверяем, что бокс в пределах экрана
-    local screenSize = Camera.ViewportSize
-    if bounds.max.X < 0 or bounds.min.X > screenSize.X or 
-       bounds.max.Y < 0 or bounds.min.Y > screenSize.Y then
-        for _, line in pairs(box.lines) do line.Visible = false end
-        return
-    end
-
-    -- Рисуем 4 линии бокса
-    local topLeft = bounds.min
-    local topRight = Vector2.new(bounds.max.X, bounds.min.Y)
-    local bottomRight = bounds.max
-    local bottomLeft = Vector2.new(bounds.min.X, bounds.max.Y)
-
-    local l = box.lines
-    l[1].From = topLeft;     l[1].To = topRight      -- Верхняя линия
-    l[2].From = topRight;    l[2].To = bottomRight   -- Правая линия
-    l[3].From = bottomRight; l[3].To = bottomLeft    -- Нижняя линия
-    l[4].From = bottomLeft;  l[4].To = topLeft       -- Левая линия
-
-    for _, line in pairs(l) do
+    
+    -- ============================================
+    --  РАСЧЁТ РАЗМЕРА БОКСА (метод Blissful4992)
+    -- ============================================
+    
+    -- Высота бокса = расстояние от головы до HRP на экране
+    local height = math.abs(headPos.Y - hrpPos.Y)
+    
+    -- Ширина = высота * 0.65 (пропорции персонажа Roblox)
+    -- Увеличиваем множитель, чтобы захватить руки
+    local width = height * 0.75
+    
+    -- Центр бокса по X = середина между головой и HRP
+    local centerX = (headPos.X + hrpPos.X) / 2
+    
+    -- Верхняя точка бокса (немного выше головы)
+    local topY = headPos.Y - height * 0.15
+    
+    -- Координаты углов бокса
+    local topLeft     = Vector2.new(centerX - width / 2, topY)
+    local topRight    = Vector2.new(centerX + width / 2, topY)
+    local bottomRight = Vector2.new(centerX + width / 2, hrpPos.Y + height * 0.15)
+    local bottomLeft  = Vector2.new(centerX - width / 2, hrpPos.Y + height * 0.15)
+    
+    -- ============================================
+    --  ОБНОВЛЯЕМ ЛИНИИ (1-4 = outline, 5-8 = основной цвет)
+    -- ============================================
+    
+    local lines = box.lines
+    local color = self.Color
+    local thickness = self.Thickness
+    local outlineThickness = thickness + 2
+    
+    -- Outline (чёрная обводка) — линии 1-4
+    lines[1].From = topLeft;      lines[1].To = topRight;       lines[1].Color = Color3.new(0, 0, 0); lines[1].Thickness = outlineThickness
+    lines[2].From = topRight;     lines[2].To = bottomRight;    lines[2].Color = Color3.new(0, 0, 0); lines[2].Thickness = outlineThickness
+    lines[3].From = bottomRight;  lines[3].To = bottomLeft;     lines[3].Color = Color3.new(0, 0, 0); lines[3].Thickness = outlineThickness
+    lines[4].From = bottomLeft;   lines[4].To = topLeft;        lines[4].Color = Color3.new(0, 0, 0); lines[4].Thickness = outlineThickness
+    
+    -- Основной бокс — линии 5-8
+    lines[5].From = topLeft;      lines[5].To = topRight;       lines[5].Color = color; lines[5].Thickness = thickness
+    lines[6].From = topRight;     lines[6].To = bottomRight;    lines[6].Color = color; lines[6].Thickness = thickness
+    lines[7].From = bottomRight;  lines[7].To = bottomLeft;     lines[7].Color = color; lines[7].Thickness = thickness
+    lines[8].From = bottomLeft;   lines[8].To = topLeft;        lines[8].Color = color; lines[8].Thickness = thickness
+    
+    -- Показываем все линии
+    for _, line in pairs(lines) do
         line.Visible = true
-        line.Color = self.Color
-        line.Thickness = self.Thickness
         line.Transparency = self.Transparency
     end
 end
@@ -221,17 +174,17 @@ end
 -- ============================================
 function BoxESP:_startLoop()
     if self._connection then return end
-
+    
     self._connection = RunService.RenderStepped:Connect(function()
         if not self.Enabled then return end
-
+        
         -- Добавляем новых игроков
         for _, player in pairs(Players:GetPlayers()) do
             if player ~= LocalPlayer and not self._players[player] then
                 self:_createBox(player)
             end
         end
-
+        
         -- Обновляем все боксы
         for _, box in pairs(self._players) do
             self:_updateBox(box)
@@ -243,13 +196,11 @@ end
 --  ПУБЛИЧНЫЕ МЕТОДЫ
 -- ============================================
 
--- Включить/выключить ESP
 function BoxESP:Toggle(state)
     self.Enabled = state
     if state then
         self:_startLoop()
     else
-        -- Прячем все линии
         for _, box in pairs(self._players) do
             for _, line in pairs(box.lines) do
                 line.Visible = false
@@ -258,12 +209,10 @@ function BoxESP:Toggle(state)
     end
 end
 
--- Изменить цвет
 function BoxESP:SetColor(color)
     self.Color = color
 end
 
--- Полностью выгрузить модуль
 function BoxESP:Unload()
     self:_clearAll()
     self.Enabled = false
