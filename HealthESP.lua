@@ -28,10 +28,8 @@ local canDrawSquare = pcall(function()
     s:Remove()
 end)
 
--- Если Square не поддерживается, возвращаем заглушку
 if not canDrawSquare then
     return {
-        Enabled = false,
         Toggle = function() end,
         SetColors = function() end,
         SetWidth = function() end,
@@ -171,7 +169,7 @@ function HealthESP:_updatePlayer(objs)
     end
     
     local height = math.abs(bottomScreen.Y - headScreen.Y)
-    if height < 1 then height = 1
+    if height < 1 then height = 1 end   -- ✅ исправлено: добавлен end
     local barHeight = height + 10
     local barWidth = self.Width
     
