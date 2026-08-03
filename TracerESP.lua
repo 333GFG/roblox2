@@ -1,5 +1,5 @@
 -- ============================================
---  TracerESP Module by nitarte
+--  TracerESP Module by nitarte (v2)
 --  Рисует линии от игрока к другим игрокам
 -- ============================================
 
@@ -9,7 +9,7 @@ local TracerESP = {
     Thickness = 1,
     MaxDistance = 2000,
     TeamCheck = false,
-    OffsetY = 0,  -- смещение по Y (для коррекции)
+    OffsetY = 0,
 
     _players = {},
     _connection = nil,
@@ -34,12 +34,13 @@ if not canDrawLine then
         SetColor = function() end,
         SetThickness = function() end,
         SetMaxDistance = function() end,
+        SetOffsetY = function() end,
         Unload = function() end,
     }
 end
 
 -- ============================================
---  СОЗДАНИЕ ЛИНИИ ДЛЯ ИГРОКА
+--  СОЗДАНИЕ ЛИНИИ
 -- ============================================
 function TracerESP:_createPlayerObjects(player)
     local objects = {
@@ -95,7 +96,6 @@ function TracerESP:_updatePlayer(objs)
         return
     end
 
-    -- Проверяем локального игрока
     local localChar = LocalPlayer.Character
     if not localChar then
         if objs.visible then
@@ -139,7 +139,6 @@ function TracerESP:_updatePlayer(objs)
         return
     end
 
-    -- TeamCheck
     if self.TeamCheck and player.Team == LocalPlayer.Team then
         if objs.visible then
             objs.line.Visible = false
@@ -148,7 +147,6 @@ function TracerESP:_updatePlayer(objs)
         return
     end
 
-    -- Дистанция
     local distance = (hrp.Position - localHrp.Position).Magnitude
     if distance > self.MaxDistance then
         if objs.visible then
@@ -158,7 +156,6 @@ function TracerESP:_updatePlayer(objs)
         return
     end
 
-    -- Проекция на экран
     local localPos, localOn = Camera:WorldToViewportPoint(localHrp.Position)
     local targetPos, targetOn = Camera:WorldToViewportPoint(hrp.Position)
 
@@ -173,10 +170,8 @@ function TracerESP:_updatePlayer(objs)
     local line = objs.line
     if not line then return end
 
-    -- Смещение по Y (коррекция, чтобы линия шла от центра персонажа)
-    local offsetY = self.OffsetY
-    line.From = Vector2.new(localPos.X, localPos.Y + offsetY)
-    line.To = Vector2.new(targetPos.X, targetPos.Y + offsetY)
+    line.From = Vector2.new(localPos.X, localPos.Y + self.OffsetY)
+    line.To = Vector2.new(targetPos.X, targetPos.Y + self.OffsetY)
     line.Visible = true
     line.Color = self.Color
     line.Thickness = self.Thickness
@@ -196,14 +191,12 @@ function TracerESP:_startLoop()
         self._frameCounter = self._frameCounter + 1
         if self._frameCounter % 2 ~= 0 then return end
 
-        -- Добавляем новых игроков
         for _, player in pairs(Players:GetPlayers()) do
             if player ~= LocalPlayer and not self._players[player] then
                 self:_createPlayerObjects(player)
             end
         end
 
-        -- Обновляем все линии
         for _, objs in pairs(self._players) do
             self:_updatePlayer(objs)
         end
