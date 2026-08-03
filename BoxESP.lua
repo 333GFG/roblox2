@@ -1,6 +1,6 @@
 -- ============================================
---  BoxESP Module by nitarte (v6.0 — с Name ESP)
---  2D Box ESP + отображение имени над боксом
+--  BoxESP Module by nitarte (v6.1 — стабильный)
+--  2D Box ESP + Name ESP (без ошибок шрифтов)
 -- ============================================
 
 local BoxESP = {
@@ -16,7 +16,7 @@ local BoxESP = {
     NameEnabled = false,
     NameColor = Color3.fromRGB(255, 255, 255),
     NameSize = 16,
-    NamePosition = "Center",  -- "Left", "Center", "Right"
+    NamePosition = "Center",
     
     _players = {},
     _connection = nil,
@@ -27,6 +27,12 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
+
+-- Проверка поддержки Drawing.Text
+local canDrawText = pcall(function()
+    local t = Drawing.new("Text")
+    t:Remove()
+end)
 
 -- ============================================
 --  ПОЛУЧИТЬ НИЖНЮЮ ТОЧКУ (ноги)
@@ -69,17 +75,25 @@ function BoxESP:_createBox(player)
         table.insert(box.lines, line)
     end
     
-    -- Создаём текст для имени
-    local text = Drawing.new("Text")
-    text.Visible = false
-    text.Color = self.NameColor
-    text.Size = self.NameSize
-    text.Center = false
-    text.Outline = true
-    text.OutlineColor = Color3.new(0, 0, 0)
-    text.Text = player.Name
-    text.Font = Enum.Font.GothamBold
-    box.text = text
+    -- Создаём текст для имени (только если поддерживается)
+    if canDrawText then
+        local success, text = pcall(function()
+            local t = Drawing.new("Text")
+            t.Visible = false
+            t.Color = self.NameColor
+            t.Size = self.NameSize
+            t.Center = false
+            t.Outline = true
+            t.OutlineColor = Color3.new(0, 0, 0)
+            t.Text = player.Name
+            return t
+        end)
+        if success then
+            box.text = text
+        else
+            box.text = nil
+        end
+    end
     
     self._players[player] = box
     return box
@@ -95,7 +109,7 @@ function BoxESP:_removeBox(player)
             line:Remove()
         end
         if box.text then
-            box.text:Remove()
+            pcall(function() box.text:Remove() end)
         end
         self._players[player] = nil
     end
@@ -112,7 +126,7 @@ function BoxESP:_clearAll()
             line:Remove()
         end
         if box.text then
-            box.text:Remove()
+            pcall(function() box.text:Remove() end)
         end
     end
     table.clear(self._players)
@@ -141,7 +155,8 @@ function BoxESP:_updateBox(box)
         end
         -- Удаляем старый текст
         if box.text then
-            box.text:Remove()
+            pcall(function() box.text:Remove() end)
+            box.text = nil
         end
         -- Создаём новые линии
         local count = self.UseOutline and 8 or 4
@@ -152,17 +167,25 @@ function BoxESP:_updateBox(box)
             line.Transparency = self.Transparency
             table.insert(box.lines, line)
         end
-        -- Создаём новый текст
-        local text = Drawing.new("Text")
-        text.Visible = false
-        text.Color = self.NameColor
-        text.Size = self.NameSize
-        text.Center = false
-        text.Outline = true
-        text.OutlineColor = Color3.new(0, 0, 0)
-        text.Text = box.player.Name
-        text.Font = Enum.Font.GothamBold
-        box.text = text
+        -- Создаём новый текст (если поддерживается)
+        if canDrawText then
+            local success, text = pcall(function()
+                local t = Drawing.new("Text")
+                t.Visible = false
+                t.Color = self.NameColor
+                t.Size = self.NameSize
+                t.Center = false
+                t.Outline = true
+                t.OutlineColor = Color3.new(0, 0, 0)
+                t.Text = box.player.Name
+                return t
+            end)
+            if success then
+                box.text = text
+            else
+                box.text = nil
+            end
+        end
         box.character = character
         box.visible = false
     end
@@ -260,7 +283,7 @@ function BoxESP:_updateBox(box)
     end
     
     -- ============================================
-    --  ОБНОВЛЕНИЕ ИМЕНИ (если включено)
+    --  ОБНОВЛЕНИЕ ИМЕНИ (если включено и текст создан)
     -- ============================================
     if self.NameEnabled and box.text then
         local text = box.text
@@ -269,16 +292,15 @@ function BoxESP:_updateBox(box)
         text.Size = self.NameSize
         text.Text = box.player.Name
         
-        -- Позиционирование над боксом
         local textX
-        local textY = topY - self.NameSize - 4  -- над верхней границей с отступом
+        local textY = topY - self.NameSize - 4
         local boxWidth = topRight.X - topLeft.X
         
         if self.NamePosition == "Left" then
             textX = topLeft.X
         elseif self.NamePosition == "Right" then
             textX = topRight.X - text.TextBounds.X
-        else -- Center (по умолчанию)
+        else
             textX = topLeft.X + (boxWidth - text.TextBounds.X) / 2
         end
         
@@ -300,14 +322,12 @@ function BoxESP:_startLoop()
     self._connection = RunService.RenderStepped:Connect(function()
         if not self.Enabled then return end
         
-        -- Добавляем новых игроков
         for _, player in pairs(Players:GetPlayers()) do
             if player ~= LocalPlayer and not self._players[player] then
                 self:_createBox(player)
             end
         end
         
-        -- Обновляем все боксы
         for _, box in pairs(self._players) do
             self:_updateBox(box)
         end
@@ -335,7 +355,6 @@ function BoxESP:Toggle(state)
     end
 end
 
--- Мгновенно меняет цвет у всех линий
 function BoxESP:SetColor(color)
     self.Color = color
     for _, box in pairs(self._players) do
@@ -348,7 +367,6 @@ function BoxESP:SetColor(color)
     end
 end
 
--- Включить/выключить Name ESP
 function BoxESP:SetNameEnabled(state)
     self.NameEnabled = state
     if not state then
@@ -360,7 +378,6 @@ function BoxESP:SetNameEnabled(state)
     end
 end
 
--- Установить цвет имени
 function BoxESP:SetNameColor(color)
     self.NameColor = color
     for _, box in pairs(self._players) do
@@ -370,7 +387,6 @@ function BoxESP:SetNameColor(color)
     end
 end
 
--- Установить размер имени
 function BoxESP:SetNameSize(size)
     self.NameSize = size
     for _, box in pairs(self._players) do
@@ -380,18 +396,20 @@ function BoxESP:SetNameSize(size)
     end
 end
 
--- Установить положение имени ("Left", "Center", "Right")
 function BoxESP:SetNamePosition(pos)
     self.NamePosition = pos
 end
 
--- Включить/выключить Outline (пересоздаёт линии)
 function BoxESP:SetOutline(enable)
     if self.UseOutline == enable then return end
     self.UseOutline = enable
     for player, box in pairs(self._players) do
         for _, line in pairs(box.lines) do
             line:Remove()
+        end
+        if box.text then
+            pcall(function() box.text:Remove() end)
+            box.text = nil
         end
         self._players[player] = self:_createBox(player)
     end
@@ -402,9 +420,6 @@ function BoxESP:Unload()
     self.Enabled = false
 end
 
--- ============================================
---  АВТО-ОЧИСТКА ПРИ ВЫХОДЕ ИГРОКА
--- ============================================
 Players.PlayerRemoving:Connect(function(player)
     if BoxESP._players[player] then
         BoxESP:_removeBox(player)
