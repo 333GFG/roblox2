@@ -1,6 +1,6 @@
 -- ============================================
---  BoxESP Module by nitarte (v5.0 — оптимизированный)
---  2D Box ESP с кэшированием и настройкой цвета
+--  BoxESP Module by nitarte (v6.0 — с Name ESP)
+--  2D Box ESP + отображение имени над боксом
 -- ============================================
 
 local BoxESP = {
@@ -10,7 +10,13 @@ local BoxESP = {
     Transparency = 1,
     TeamCheck = false,
     MaxDistance = 2000,
-    UseOutline = true,   -- можно отключить для FPS
+    UseOutline = true,
+    
+    -- Настройки Name ESP
+    NameEnabled = false,
+    NameColor = Color3.fromRGB(255, 255, 255),
+    NameSize = 16,
+    NamePosition = "Center",  -- "Left", "Center", "Right"
     
     _players = {},
     _connection = nil,
@@ -26,6 +32,7 @@ local LocalPlayer = Players.LocalPlayer
 --  ПОЛУЧИТЬ НИЖНЮЮ ТОЧКУ (ноги)
 -- ============================================
 local function GetBottomPart(character)
+    if not character then return nil end
     local leftFoot = character:FindFirstChild("LeftFoot")
     local rightFoot = character:FindFirstChild("RightFoot")
     if leftFoot and rightFoot then
@@ -44,19 +51,16 @@ local function GetBottomPart(character)
 end
 
 -- ============================================
---  СОЗДАНИЕ ЛИНИЙ (только нужное количество)
+--  СОЗДАНИЕ НОВОГО БОКСА (ЛИНИИ + ТЕКСТ)
 -- ============================================
 function BoxESP:_createBox(player)
     local box = {
         player = player,
         lines = {},
-        lastTopLeft = nil,
-        lastTopRight = nil,
-        lastBottomLeft = nil,
-        lastBottomRight = nil,
+        text = nil,
+        character = nil,
         visible = false
     }
-    
     local count = self.UseOutline and 8 or 4
     for i = 1, count do
         local line = Drawing.new("Line")
@@ -65,26 +69,50 @@ function BoxESP:_createBox(player)
         table.insert(box.lines, line)
     end
     
+    -- Создаём текст для имени
+    local text = Drawing.new("Text")
+    text.Visible = false
+    text.Color = self.NameColor
+    text.Size = self.NameSize
+    text.Center = false
+    text.Outline = true
+    text.OutlineColor = Color3.new(0, 0, 0)
+    text.Text = player.Name
+    text.Font = Enum.Font.GothamBold
+    box.text = text
+    
     self._players[player] = box
     return box
 end
 
+-- ============================================
+--  УДАЛИТЬ БОКС (И ЛИНИИ, И ТЕКСТ)
+-- ============================================
 function BoxESP:_removeBox(player)
     local box = self._players[player]
     if box then
         for _, line in pairs(box.lines) do
             line:Remove()
         end
+        if box.text then
+            box.text:Remove()
+        end
         self._players[player] = nil
     end
 end
 
+-- ============================================
+--  ОЧИСТКА ВСЕГО
+-- ============================================
 function BoxESP:_clearAll()
     if self._cleaning then return end
     self._cleaning = true
     for player, box in pairs(self._players) do
         for _, line in pairs(box.lines) do
             line:Remove()
+        end
+        if box.text then
+            box.text:Remove()
         end
     end
     table.clear(self._players)
@@ -96,7 +124,7 @@ function BoxESP:_clearAll()
 end
 
 -- ============================================
---  ОБНОВЛЕНИЕ БОКСА (с кэшированием)
+--  ОБНОВЛЕНИЕ ОДНОГО БОКСА (И ИМЕНИ)
 -- ============================================
 function BoxESP:_updateBox(box)
     if not box.player or not box.player.Parent then
@@ -105,9 +133,44 @@ function BoxESP:_updateBox(box)
     end
     
     local character = box.player.Character
+    -- Если персонаж изменился (перерождение) — пересоздаём линии и текст
+    if box.character ~= character then
+        -- Удаляем старые линии
+        for _, line in pairs(box.lines) do
+            line:Remove()
+        end
+        -- Удаляем старый текст
+        if box.text then
+            box.text:Remove()
+        end
+        -- Создаём новые линии
+        local count = self.UseOutline and 8 or 4
+        box.lines = {}
+        for i = 1, count do
+            local line = Drawing.new("Line")
+            line.Visible = false
+            line.Transparency = self.Transparency
+            table.insert(box.lines, line)
+        end
+        -- Создаём новый текст
+        local text = Drawing.new("Text")
+        text.Visible = false
+        text.Color = self.NameColor
+        text.Size = self.NameSize
+        text.Center = false
+        text.Outline = true
+        text.OutlineColor = Color3.new(0, 0, 0)
+        text.Text = box.player.Name
+        text.Font = Enum.Font.GothamBold
+        box.text = text
+        box.character = character
+        box.visible = false
+    end
+    
     if not character then
         if box.visible then
             for _, line in pairs(box.lines) do line.Visible = false end
+            if box.text then box.text.Visible = false end
             box.visible = false
         end
         return
@@ -120,6 +183,7 @@ function BoxESP:_updateBox(box)
     if not head or not humanoid or humanoid.Health <= 0 or not bottomPos then
         if box.visible then
             for _, line in pairs(box.lines) do line.Visible = false end
+            if box.text then box.text.Visible = false end
             box.visible = false
         end
         return
@@ -128,6 +192,7 @@ function BoxESP:_updateBox(box)
     if self.TeamCheck and box.player.Team == LocalPlayer.Team then
         if box.visible then
             for _, line in pairs(box.lines) do line.Visible = false end
+            if box.text then box.text.Visible = false end
             box.visible = false
         end
         return
@@ -137,6 +202,7 @@ function BoxESP:_updateBox(box)
     if distance > self.MaxDistance then
         if box.visible then
             for _, line in pairs(box.lines) do line.Visible = false end
+            if box.text then box.text.Visible = false end
             box.visible = false
         end
         return
@@ -148,18 +214,19 @@ function BoxESP:_updateBox(box)
     if not headOn and not bottomOn then
         if box.visible then
             for _, line in pairs(box.lines) do line.Visible = false end
+            if box.text then box.text.Visible = false end
             box.visible = false
         end
         return
     end
     
-    -- Рассчёт углов
+    -- Расчёт углов бокса (каждый кадр)
     local height = math.abs(bottomScreen.Y - headScreen.Y)
+    if height < 1 then height = 1 end
     local width = height * 0.7
     local centerX = (headScreen.X + bottomScreen.X) / 2
     local topY = headScreen.Y - height * 0.08
     local bottomY = bottomScreen.Y + height * 0.05
-    
     height = bottomY - topY
     width = height * 0.6
     
@@ -168,17 +235,6 @@ function BoxESP:_updateBox(box)
     local bottomLeft = Vector2.new(centerX - width/2, bottomY)
     local bottomRight = Vector2.new(centerX + width/2, bottomY)
     
-    -- Проверка изменений
-    if box.lastTopLeft == topLeft and box.lastTopRight == topRight and
-       box.lastBottomLeft == bottomLeft and box.lastBottomRight == bottomRight then
-        -- Координаты не изменились, но если линии были скрыты – показываем
-        if not box.visible then
-            for _, line in pairs(box.lines) do line.Visible = true end
-            box.visible = true
-        end
-        return
-    end
-    
     -- Обновляем линии
     local lines = box.lines
     local color = self.Color
@@ -186,19 +242,16 @@ function BoxESP:_updateBox(box)
     local outlineThickness = thickness + 2
     
     if self.UseOutline then
-        -- Outline (линии 1-4)
         lines[1].From = topLeft;      lines[1].To = topRight;       lines[1].Color = Color3.new(0,0,0); lines[1].Thickness = outlineThickness
         lines[2].From = topRight;     lines[2].To = bottomRight;    lines[2].Color = Color3.new(0,0,0); lines[2].Thickness = outlineThickness
         lines[3].From = bottomRight;  lines[3].To = bottomLeft;     lines[3].Color = Color3.new(0,0,0); lines[3].Thickness = outlineThickness
         lines[4].From = bottomLeft;   lines[4].To = topLeft;        lines[4].Color = Color3.new(0,0,0); lines[4].Thickness = outlineThickness
-        -- Основной цвет (линии 5-8)
         lines[5].From = topLeft;      lines[5].To = topRight;       lines[5].Color = color; lines[5].Thickness = thickness
         lines[6].From = topRight;     lines[6].To = bottomRight;    lines[6].Color = color; lines[6].Thickness = thickness
         lines[7].From = bottomRight;  lines[7].To = bottomLeft;     lines[7].Color = color; lines[7].Thickness = thickness
         lines[8].From = bottomLeft;   lines[8].To = topLeft;        lines[8].Color = color; lines[8].Thickness = thickness
         for i = 1, 8 do lines[i].Visible = true end
     else
-        -- Только основной цвет (4 линии)
         lines[1].From = topLeft;      lines[1].To = topRight;       lines[1].Color = color; lines[1].Thickness = thickness
         lines[2].From = topRight;     lines[2].To = bottomRight;    lines[2].Color = color; lines[2].Thickness = thickness
         lines[3].From = bottomRight;  lines[3].To = bottomLeft;     lines[3].Color = color; lines[3].Thickness = thickness
@@ -206,15 +259,41 @@ function BoxESP:_updateBox(box)
         for i = 1, 4 do lines[i].Visible = true end
     end
     
-    box.lastTopLeft = topLeft
-    box.lastTopRight = topRight
-    box.lastBottomLeft = bottomLeft
-    box.lastBottomRight = bottomRight
+    -- ============================================
+    --  ОБНОВЛЕНИЕ ИМЕНИ (если включено)
+    -- ============================================
+    if self.NameEnabled and box.text then
+        local text = box.text
+        text.Visible = true
+        text.Color = self.NameColor
+        text.Size = self.NameSize
+        text.Text = box.player.Name
+        
+        -- Позиционирование над боксом
+        local textX
+        local textY = topY - self.NameSize - 4  -- над верхней границей с отступом
+        local boxWidth = topRight.X - topLeft.X
+        
+        if self.NamePosition == "Left" then
+            textX = topLeft.X
+        elseif self.NamePosition == "Right" then
+            textX = topRight.X - text.TextBounds.X
+        else -- Center (по умолчанию)
+            textX = topLeft.X + (boxWidth - text.TextBounds.X) / 2
+        end
+        
+        text.Position = Vector2.new(textX, textY)
+    else
+        if box.text then
+            box.text.Visible = false
+        end
+    end
+    
     box.visible = true
 end
 
 -- ============================================
---  ГЛАВНЫЙ ЦИКЛ (оптимизированный)
+--  ГЛАВНЫЙ ЦИКЛ (RenderStepped)
 -- ============================================
 function BoxESP:_startLoop()
     if self._connection then return end
@@ -248,6 +327,9 @@ function BoxESP:Toggle(state)
             for _, line in pairs(box.lines) do
                 line.Visible = false
             end
+            if box.text then
+                box.text.Visible = false
+            end
             box.visible = false
         end
     end
@@ -266,11 +348,47 @@ function BoxESP:SetColor(color)
     end
 end
 
+-- Включить/выключить Name ESP
+function BoxESP:SetNameEnabled(state)
+    self.NameEnabled = state
+    if not state then
+        for _, box in pairs(self._players) do
+            if box.text then
+                box.text.Visible = false
+            end
+        end
+    end
+end
+
+-- Установить цвет имени
+function BoxESP:SetNameColor(color)
+    self.NameColor = color
+    for _, box in pairs(self._players) do
+        if box.text then
+            box.text.Color = color
+        end
+    end
+end
+
+-- Установить размер имени
+function BoxESP:SetNameSize(size)
+    self.NameSize = size
+    for _, box in pairs(self._players) do
+        if box.text then
+            box.text.Size = size
+        end
+    end
+end
+
+-- Установить положение имени ("Left", "Center", "Right")
+function BoxESP:SetNamePosition(pos)
+    self.NamePosition = pos
+end
+
 -- Включить/выключить Outline (пересоздаёт линии)
 function BoxESP:SetOutline(enable)
     if self.UseOutline == enable then return end
     self.UseOutline = enable
-    -- Пересоздаём линии для всех игроков
     for player, box in pairs(self._players) do
         for _, line in pairs(box.lines) do
             line:Remove()
@@ -285,7 +403,7 @@ function BoxESP:Unload()
 end
 
 -- ============================================
---  АВТО-ОЧИСТКА
+--  АВТО-ОЧИСТКА ПРИ ВЫХОДЕ ИГРОКА
 -- ============================================
 Players.PlayerRemoving:Connect(function(player)
     if BoxESP._players[player] then
